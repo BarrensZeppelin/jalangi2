@@ -33,6 +33,7 @@ parser.addArgument(['--initParam'], { help: "initialization parameter for analys
 parser.addArgument(['--inlineIID'], {help: "Inline IID to (beginLineNo, beginColNo, endLineNo, endColNo) in J$.iids in the instrumented file", action: 'storeTrue'});
 parser.addArgument(['--inlineSource'], {help: "Inline original source as string in J$.iids.code in the instrumented file", action: 'storeTrue'});
 parser.addArgument(['--astHandlerModule'], {help: "Path to a node module that exports a function to be used for additional AST handling after instrumentation"});
+parser.addArgument(['--blacklistedModules'], { help: "Path to a JSON file defining an array of blacklisted node modules that should not be analyzed" });
 parser.addArgument(['script_and_args'], {
     help: "script to record and CLI arguments for that script",
     nargs: argparse.Const.REMAINDER
@@ -42,8 +43,6 @@ var astHandler = null;
 if (args.astHandlerModule) {
     astHandler = require(args.astHandlerModule);
 }
-
-
 
 if (args.script_and_args.length === 0) {
     console.error("must provide script to record");
@@ -58,6 +57,12 @@ var path = require('path');
 var fs = require('fs');
 var originalLoader = Module._extensions['.js'];
 var FILESUFFIX1 = "_jalangi_";
+
+var blacklistedModules = [];
+if (args.blacklistedModules && fs.existsSync(args.blacklistedModules)) {
+    var jsonFile = fs.readFileSync(args.blacklistedModules);
+    blacklistedModules = JSON.parse(jsonFile.toString());
+}
 
 function makeInstCodeFileName(name) {
     return name.replace(/.js$/, FILESUFFIX1 + ".js").replace(/.html$/, FILESUFFIX1 + ".html");
@@ -91,11 +96,25 @@ if (args.analysis) {
     });
 }
 
+var logFile = "/tmp/jalangi.log";
+fs.writeFileSync(logFile, "");
+
 Module._extensions['.js'] = function (module, filename) {
+    fs.appendFileSync(logFile, filename + "\n");
+
     var code = fs.readFileSync(filename, 'utf8');
-    var instFilename = makeInstCodeFileName(filename);
-    var instCodeAndData = J$.instrumentCode(
-        {
+
+    var regexCapturingModuleName = /\/node_modules\/(.*)\/.*js/g;
+    var matches = regexCapturingModuleName.exec(filename);
+    var extractedModuleFromFilename = matches !== null? matches[1] : "";
+
+    if (blacklistedModules.indexOf(extractedModuleFromFilename) !== -1) {
+        fs.appendFileSync(logFile, "skipped\n");
+        module._compile(code, filename);
+    } else {
+        fs.appendFileSync(logFile, "instrumented\n");
+        var instFilename = makeInstCodeFileName(filename);
+        var instCodeAndData = J$.instrumentCode({
             code: code,
             isEval: false,
             origCodeFileName: filename,
@@ -103,10 +122,14 @@ Module._extensions['.js'] = function (module, filename) {
             inlineSourceMap: !!args.inlineIID,
             inlineSource: !!args.inlineSource
         });
-    instUtil.applyASTHandler(instCodeAndData, astHandler, J$);
-    fs.writeFileSync(makeSMapFileName(instFilename), instCodeAndData.sourceMapString, "utf8");
-    fs.writeFileSync(instFilename, instCodeAndData.code, "utf8");
-    module._compile(instCodeAndData.code, filename);
+    
+        instUtil.applyASTHandler(instCodeAndData, astHandler, J$);
+        fs.writeFileSync(makeSMapFileName(instFilename), instCodeAndData.sourceMapString, "utf8");
+        fs.writeFileSync(instFilename, instCodeAndData.code, "utf8");
+        module._compile(instCodeAndData.code, filename);
+    }
+
+    fs.appendFileSync(logFile, "-------------------\n");
 };
 
 function startProgram() {
