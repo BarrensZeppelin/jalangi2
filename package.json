@@ -18,10 +18,6 @@
     "rewriting-proxy": "0.5.1",
     "temp": "0.9.1"
   },
-  "bundledDependencies": [
-    "acorn",
-    "esotope"
-  ],
   "scripts": {
     "test": "./node_modules/.bin/mocha --reporter spec node_test && python scripts/runalltests.py"
   },
