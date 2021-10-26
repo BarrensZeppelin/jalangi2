@@ -108,7 +108,11 @@ Module._extensions['.js'] = function (module, filename) {
     var matches = regexCapturingModuleName.exec(filename);
     var extractedModuleFromFilename = matches !== null? matches[1] : "";
 
-    if (blacklistedModules.indexOf(extractedModuleFromFilename) !== -1) {
+    // Detect "DO NOT INSTRUMENT" in the same way as NodeProf.js
+    var sourceHead = code.substr(0, 1000);
+
+    if (sourceHead.includes("DO NOT INSTRUMENT") ||
+            blacklistedModules.indexOf(extractedModuleFromFilename) !== -1) {
         fs.appendFileSync(logFile, "skipped\n");
         module._compile(code, filename);
     } else {
